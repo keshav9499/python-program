@@ -1,0 +1,6 @@
+gtts
+pygame
+python-dotenv
+requests
+SpeechRecognition
+pyautogui
