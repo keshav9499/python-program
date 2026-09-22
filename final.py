@@ -38,10 +38,10 @@ st.write("---")
 GOOGLE_API_KEY = os.environ.get("MY_SECRET_API_KEY")
 
 def speak(message: str):
-    """Generates audio bytes via gTTS and mounts a hidden autoplay component onto the browser DOM."""
+    """Generates audio bytes via gTTS and mounts an autoplay component onto the browser DOM securely."""
     try:
         tts = gTTS(text=message, lang='hi', slow=False)
-        filename = "voice.mp3"
+        filename = f"voice_{int(time.time())}.mp3" # Unique timestamp filename to avoid caching bugs
         tts.save(filename)
         
         with open(filename, "rb") as f:
@@ -64,7 +64,6 @@ def ask_sansa_ai(user_text):
         "Content-Type": "application/json"
     }
 
-    # Dynamic prompt that works perfectly for anyone testing, but respects Keshav as the creator
     data = {
         "model": "openai/gpt-4o-mini",
         "messages": [
@@ -83,7 +82,6 @@ Language Rule: If the user speaks in Hindi, reply in Hindi. If English, reply in
     }
 
     try:
-        # Standard processing pipeline for third-party API integration
         response = requests.post(url, headers=headers, json=data, timeout=30)
         response.raise_for_status()
         result = response.json()
@@ -97,6 +95,8 @@ if 'system_online' not in st.session_state:
     st.session_state.system_online = False
 if 'history' not in st.session_state:
     st.session_state.history = []
+if 'last_processed_text' not in st.session_state:
+    st.session_state.last_processed_text = ""
 
 # --- SIDEBAR INTERFACE ---
 with st.sidebar:
@@ -120,7 +120,7 @@ with st.sidebar:
     else:
         st.caption("No commands processed yet...")
 
-# --- PHASE 1: ACTIVATION WALL (BREAKING THE BROWSER AUDIO LOCKUP) ---
+# --- PHASE 1: ACTIVATION WALL ---
 if not st.session_state.system_online:
     st.markdown("<div class='status-box'><h3>SYSTEM STANDBY</h3><p>Press the button below to authorize browser multimedia layers and synchronize microphone configurations.</p></div>", unsafe_allow_html=True)
     if st.button("⚡ ACTIVATE SANSA AI"):
@@ -128,7 +128,7 @@ if not st.session_state.system_online:
         st.session_state.history.append("System Core Initialized")
         st.rerun()
 
-# --- PHASE 2: SYSTEM ONLINE STATE (CONTINUOUS AUDIO CAPTURE LAYER) ---
+# --- PHASE 2: SYSTEM ONLINE STATE ---
 else:
     if 'has_greeted' not in st.session_state:
         speak("Hello! Sansa is now online and ready to chat. Who do I have the pleasure of speaking with?")
@@ -136,7 +136,7 @@ else:
 
     st.markdown("<div class='status-box'><h3 style='color:#00e5ff;'>🎙️ Sansa Core Active</h3><p>Click the panel below, speak clearly into your device microphone, and let the voice model stream responses.</p></div>", unsafe_allow_html=True)
 
-    # Capturing input from the cloud browser pipeline rather than physical OS devices
+    # Capturing input safely from web plugin hooks
     text = speech_to_text(
         start_prompt="🎙️ Click to Talk / Command Sansa",
         stop_prompt="🛑 Processing speech data...",
@@ -145,7 +145,9 @@ else:
         key='sansa_microphone_hook'
     )
 
-    if text:
+    # State Check logic to instantly break the infinite 'processing text' rerun loop
+    if text and text != st.session_state.last_processed_text:
+        st.session_state.last_processed_text = text # Lock state to prevent infinite refresh loops
         text_clean = text.lower().strip()
         st.info(f"**You Said:** {text}")
         st.session_state.history.append(f"User: {text_clean}")
@@ -156,6 +158,7 @@ else:
             speak("Goodbye! Have a great day ahead.")
             st.session_state.system_online = False
             del st.session_state['has_greeted']
+            st.session_state.last_processed_text = ""
             st.rerun()
             
         elif "time" in text_clean:
@@ -181,7 +184,6 @@ else:
             st.success(f"Sansa: The day is {current_day}")
             speak(f"the day is {current_day}")
 
-        # Web safety block for local host machine utilities
         elif "open" in text_clean or "chrome" in text_clean or "volume" in text_clean or "mute" in text_clean or "lock" in text_clean or "shutdown" in text_clean:
             st.warning("Hardware automation controls are disabled over public web links for safety.")
             speak("System commands are restricted over browser frameworks.")
