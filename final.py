@@ -5,7 +5,6 @@ import streamlit as st
 from datetime import datetime
 from dotenv import load_dotenv
 from gtts import gTTS
-from streamlit_mic_recorder import speech_to_text
 
 # Load environment variables
 load_dotenv()
@@ -17,22 +16,23 @@ st.set_page_config(page_title="Sansa AI Core", page_icon="🎙️", layout="cent
 st.markdown("""
     <style>
     .main { background-color: #050b14; color: #ffffff; }
-    div.stButton > button:first-child {
-        background-color: #006eff; color: white; font-size: 18px; font-weight: bold;
-        width: 100%; border-radius: 12px; height: 55px; border: 2px solid #00e5ff;
-        box-shadow: 0px 0px 15px rgba(0, 229, 255, 0.4); transition: 0.3s;
-    }
-    div.stButton > button:first-child:hover {
-        background-color: #00e5ff; color: black; box-shadow: 0px 0px 25px rgba(0, 229, 255, 0.8);
-    }
     .status-box {
         padding: 15px; border-radius: 10px; background-color: #081522;
         border: 1px solid #173044; margin-bottom: 20px;
     }
+    .chat-bubble-user {
+        background-color: #006eff; padding: 10px 15px; border-radius: 15px 15px 0px 15px;
+        margin: 10px 0; width: fit-content; max-width: 80%; float: right; clear: both; color: white;
+    }
+    .chat-bubble-sansa {
+        background-color: #173044; padding: 10px 15px; border-radius: 15px 15px 15px 0px;
+        margin: 10px 0; width: fit-content; max-width: 80%; float: left; clear: both; color: #00e5ff;
+        border: 1px solid #00e5ff;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🎙️ Sansa AI - Public Voice Assistant")
+st.title("🎙️ Sansa AI - Real-time Voice & Text Assistant")
 st.write("---")
 
 GOOGLE_API_KEY = os.environ.get("MY_SECRET_API_KEY")
@@ -41,7 +41,7 @@ def speak(message: str):
     """Generates audio bytes via gTTS and mounts an autoplay component onto the browser DOM securely."""
     try:
         tts = gTTS(text=message, lang='hi', slow=False)
-        filename = f"voice_{int(time.time())}.mp3" # Unique timestamp filename to avoid caching bugs
+        filename = f"voice_{int(time.time())}.mp3"
         tts.save(filename)
         
         with open(filename, "rb") as f:
@@ -87,118 +87,70 @@ Language Rule: If the user speaks in Hindi, reply in Hindi. If English, reply in
         result = response.json()
         return result["choices"]["message"]["content"]
     except Exception as e:
-        print("AI Error:", e)
         return "Sorry, I am having trouble connecting to my AI brain."
 
-# --- SESSION STATES FOR CONTROLLING WEB APPLICATION FLOW ---
+# --- SESSION STATES FOR CONTROLLING CHAT FLOW ---
 if 'system_online' not in st.session_state:
     st.session_state.system_online = False
-if 'history' not in st.session_state:
-    st.session_state.history = []
-if 'last_processed_text' not in st.session_state:
-    st.session_state.last_processed_text = ""
-
-# --- SIDEBAR INTERFACE ---
-with st.sidebar:
-    st.markdown("### 🖥️ SYSTEM MONITOR")
-    if st.session_state.system_online:
-        st.markdown("<p style='color:#00ffcc; font-weight:bold;'>● SYSTEM ONLINE</p>", unsafe_allow_html=True)
-    else:
-        st.markdown("<p style='color:#777777; font-weight:bold;'>● SYSTEM OFFLINE</p>", unsafe_allow_html=True)
-        
-    st.markdown("""
-    **Core Capabilities:**
-    * ◉ Voice Recognition: `READY`
-    * ◉ AI Creator Identity: `KESHAV`
-    * ◉ Web Audio Engine: `CONNECTED`
-    """)
-    st.write("---")
-    st.markdown("### 📜 COMMAND HISTORY")
-    if st.session_state.history:
-        for cmd in reversed(st.session_state.history):
-            st.text(cmd)
-    else:
-        st.caption("No commands processed yet...")
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
 
 # --- PHASE 1: ACTIVATION WALL ---
 if not st.session_state.system_online:
-    st.markdown("<div class='status-box'><h3>SYSTEM STANDBY</h3><p>Press the button below to authorize browser multimedia layers and synchronize microphone configurations.</p></div>", unsafe_allow_html=True)
+    st.markdown("<div class='status-box'><h3>SYSTEM STANDBY</h3><p>Press the button below to authorize browser multimedia layers and wake up Sansa.</p></div>", unsafe_allow_html=True)
     if st.button("⚡ ACTIVATE SANSA AI"):
         st.session_state.system_online = True
-        st.session_state.history.append("System Core Initialized")
         st.rerun()
 
-# --- PHASE 2: SYSTEM ONLINE STATE ---
+# --- PHASE 2: ACTIVE SYSTEM INTERFACE ---
 else:
     if 'has_greeted' not in st.session_state:
-        speak("Hello! Sansa is now online and ready to chat. Who do I have the pleasure of speaking with?")
+        speak("Hello! Sansa is now online. Type or use mic typing to chat with me.")
         st.session_state.has_greeted = True
 
-    st.markdown("<div class='status-box'><h3 style='color:#00e5ff;'>🎙️ Sansa Core Active</h3><p>Click the panel below, speak clearly into your device microphone, and let the voice model stream responses.</p></div>", unsafe_allow_html=True)
+    st.markdown("<div class='status-box'><h3 style='color:#00e5ff;'>🎙️ Sansa Chat Core Active</h3><p>Type your message below. (You can also click the microphone icon on your keyboard to speak into the text box!)</p></div>", unsafe_allow_html=True)
 
-    # Capturing input safely from web plugin hooks
-    text = speech_to_text(
-        start_prompt="🎙️ Click to Talk / Command Sansa",
-        stop_prompt="🛑 Processing speech data...",
-        language='en-IN',
-        use_container_width=True,
-        key='sansa_microphone_hook'
-    )
-
-    # State Check logic to instantly break the infinite 'processing text' rerun loop
-    if text and text != st.session_state.last_processed_text:
-        st.session_state.last_processed_text = text # Lock state to prevent infinite refresh loops
-        text_clean = text.lower().strip()
-        st.info(f"**You Said:** {text}")
-        st.session_state.history.append(f"User: {text_clean}")
-
-        # --- EXECUTING MATCHING WEB-FRIENDLY CRITERIA ---
-        if "exit" in text_clean or "stop" in text_clean:
-            st.session_state.history.append("Sansa: Goodbye session closed.")
-            speak("Goodbye! Have a great day ahead.")
-            st.session_state.system_online = False
-            del st.session_state['has_greeted']
-            st.session_state.last_processed_text = ""
-            st.rerun()
-            
-        elif "time" in text_clean:
-            current_time = datetime.now().strftime("%I:%M %p")
-            st.success(f"Sansa: The time is {current_time}")
-            speak(f"The time is {current_time}")
-            
-        elif "hello" in text_clean or "hi" in text_clean or "sansa" in text_clean:
-            st.success("Sansa: Hello there! How can I assist you today?")
-            speak("Hello there! How can I assist you today?")
-            
-        elif "date" in text_clean:
-            current_date = datetime.now().strftime("%d %B %Y")
-            st.success(f"Sansa: Today is {current_date}")
-            speak(f"today is {current_date}")
-            
-        elif "where" in text_clean:
-            st.success("Sansa: I live in the digital cloud realm.")
-            speak("I live in the digital cloud realm.")
-            
-        elif "day" in text_clean:
-            current_day = datetime.now().strftime("%A")
-            st.success(f"Sansa: The day is {current_day}")
-            speak(f"the day is {current_day}")
-
-        elif "open" in text_clean or "chrome" in text_clean or "volume" in text_clean or "mute" in text_clean or "lock" in text_clean or "shutdown" in text_clean:
-            st.warning("Hardware automation controls are disabled over public web links for safety.")
-            speak("System commands are restricted over browser frameworks.")
-            
-        elif "your name" in text_clean:
-            st.success("Sansa: My name is Sansa.")
-            speak("my name is sansa")
-            
-        elif "thank you" in text_clean or "thanks" in text_clean:
-            st.success("Sansa: You are welcome.")
-            speak("you are welcome")
-            
+    # Display Chat History beautifully
+    for role, message in st.session_state.chat_history:
+        if role == "user":
+            st.markdown(f"<div class='chat-bubble-user'>{message}</div>", unsafe_allow_html=True)
         else:
-            with st.spinner("Sansa is thinking..."):
-                answer = ask_sansa_ai(text)
-            st.success(f"**Sansa:** {answer}")
-            st.session_state.history.append(f"Sansa: {answer}")
-            speak(answer)
+            st.markdown(f"<div class='chat-bubble-sansa'>{message}</div>", unsafe_allow_html=True)
+
+    st.write(" ") # Spacing
+
+    # Safe Form Input to kill any refresh/processing lag loop completely
+    with st.form(key='chat_form', clear_on_submit=True):
+        user_input = st.text_input("Message Sansa...", placeholder="Type here or use voice dictation...")
+        submit_button = st.form_submit_button(label="Send 🚀")
+
+    if submit_button and user_input:
+        text_clean = user_input.lower().strip()
+        st.session_state.chat_history.append(("user", user_input))
+
+        # --- EXECUTING MATCHING LOGIC ---
+        if "time" in text_clean:
+            ans = f"The time is {datetime.now().strftime('%I:%M %p')}"
+        elif "date" in text_clean:
+            ans = f"Today is {datetime.now().strftime('%d %B %Y')}"
+        elif "day" in text_clean:
+            ans = f"The day is {datetime.now().strftime('%A')}"
+        elif "hello" in text_clean or "hi" in text_clean or "sansa" in text_clean:
+            ans = "Hello there! How can I assist you today?"
+        elif "your name" in text_clean:
+            ans = "My name is Sansa."
+        elif "who are you" in text_clean:
+            ans = "Sansa, your personal AI assistant."
+        elif "open" in text_clean or "chrome" in text_clean or "volume" in text_clean or "mute" in text_clean or "lock" in text_clean or "shutdown" in text_clean:
+            ans = "System commands and hardware controls are restricted over browser frameworks for safety."
+        else:
+            with st.spinner("Sansa is processing..."):
+                ans = ask_sansa_ai(user_input)
+
+        st.session_state.chat_history.append(("sansa", ans))
+        st.rerun()
+
+    # Trigger audio for the latest Sansa reply to achieve stable audio delivery
+    if st.session_state.chat_history and st.session_state.chat_history[-1][0] == "sansa":
+        latest_reply = st.session_state.chat_history[-1][1]
+        speak(latest_reply)
