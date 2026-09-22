@@ -1,572 +1,202 @@
-from gtts import gTTS
-import pygame
-import os
-from dotenv import load_dotenv
-
-import requests
 import os
 import time
-import webbrowser
-import subprocess
+import requests
+import streamlit as st
 from datetime import datetime
+from dotenv import load_dotenv
+from gtts import gTTS
+from streamlit_mic_recorder import speech_to_text
 
-import speech_recognition as sr
-import shutil
-import pyautogui
-# --- Frontend ke liye zaroori imports ---
-import tkinter as tk
-from tkinter import ttk
-import threading
+# Load environment variables
+load_dotenv()
+
+# Streamlit Page configuration for futuristic dark theme
+st.set_page_config(page_title="Sansa AI Core", page_icon="🎙️", layout="centered")
+
+# Injecting futuristic styling directly into the browser DOM
+st.markdown("""
+    <style>
+    .main { background-color: #050b14; color: #ffffff; }
+    div.stButton > button:first-child {
+        background-color: #006eff; color: white; font-size: 18px; font-weight: bold;
+        width: 100%; border-radius: 12px; height: 55px; border: 2px solid #00e5ff;
+        box-shadow: 0px 0px 15px rgba(0, 229, 255, 0.4); transition: 0.3s;
+    }
+    div.stButton > button:first-child:hover {
+        background-color: #00e5ff; color: black; box-shadow: 0px 0px 25px rgba(0, 229, 255, 0.8);
+    }
+    .status-box {
+        padding: 15px; border-radius: 10px; background-color: #081522;
+        border: 1px solid #173044; margin-bottom: 20px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+st.title("🎙️ Sansa AI - Public Voice Assistant")
+st.write("---")
+
 GOOGLE_API_KEY = os.environ.get("MY_SECRET_API_KEY")
-# OPENROUTER_API_KEY="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"
-
-# Recognizer configuration
-recognizer = sr.Recognizer()
-recognizer.pause_threshold = 1.5
-recognizer.energy_threshold = 300
-recognizer.dynamic_energy_threshold = True
 
 def speak(message: str):
+    """Generates audio bytes via gTTS and mounts a hidden autoplay component onto the browser DOM."""
     try:
-        # 1. Google TTS engine setup
         tts = gTTS(text=message, lang='hi', slow=False)
         filename = "voice.mp3"
         tts.save(filename)
-
-        # 2. Pygame Sound object initialize karna
-        pygame.mixer.init()
         
-        # Audio ko Sound object me load karna
-        sound = pygame.mixer.Sound(filename)
+        with open(filename, "rb") as f:
+            audio_bytes = f.read()
+            
+        st.audio(audio_bytes, format="audio/mp3", autoplay=True)
         
-        # --- 🚀 SPEED SETTING 🚀 ---
-        # 1.0 = Normal (Default)
-        # 1.2 = 20% Fast (Attitude ke liye best!)
-        # 1.5 = 50% Bohot Tez
-        speed_factor = 1.5
-        
-        # Sound play karna (Pygame speed adjust factor automatically track karta hai channels par)
-        channel = sound.play()
-        
-        # Audio jab tak chal raha hai tab tak code ko hold pe rakhna
-        while channel.get_busy():
-            time.sleep(0.1)
-
-        # 3. Clean up
-        pygame.mixer.quit() # Mixer close karna taaki file unlock ho jaye
         if os.path.exists(filename):
             os.remove(filename)
-            
     except Exception as e:
-        print(f"Speech error: {e}")
-
+        st.error(f"Speech output error: {e}")
 
 def ask_sansa_ai(user_text):
+    if not GOOGLE_API_KEY:
+        return "Sorry, I cannot access my secret API key in the current environment settings."
 
-    url = "https://openrouter.ai/api/v1/chat/completions"
-
+    url = "https://openrouter.ai"
     headers = {
         "Authorization": f"Bearer {GOOGLE_API_KEY}",
         "Content-Type": "application/json"
     }
 
+    # Dynamic prompt that works perfectly for anyone testing, but respects Keshav as the creator
     data = {
         "model": "openai/gpt-4o-mini",
         "messages": [
             {
                 "role": "system",
                 "content": """
-You are sansa, Keshav's personal AI assistant.
-
-Talk naturally like a helpful human assistant.
-Be friendly, intelligent, and conversational.
-Keep answers reasonably short because your answer will be spoken aloud.
-Remember that the user is Keshav.
-if keshav speaks in hindi reply in hindi, if keshav speaks in english reply in english,if keshav speaks in Hinglish reply inHinglish.
-keshav favorite thing or favorite game is playing basketball, so if he talk about sports, you can talk about basketball too.
+You are Sansa, a highly advanced, friendly, and intelligent AI assistant.
+CRITICAL RULE 1: You were created and programmed by Keshav. If anyone asks 'who created you?', 'who made you?', 'owner kaun hai?', or 'aapko kisne banaya?', you must always proudly state that you were made by Keshav.
+CRITICAL RULE 2: Talk naturally like a helpful human assistant. Keep answers reasonably short (1-2 sentences) because your answer will be spoken aloud over the web.
+CRITICAL RULE 3: If the person interacting with you says their name is Keshav, treat them as your master/boss who loves basketball. If anyone else is talking to you, treat them politely as a guest or friend, but maintain that Keshav is your creator.
+Language Rule: If the user speaks in Hindi, reply in Hindi. If English, reply in English. If Hinglish, reply in Hinglish.
 """
             },
-            {
-                "role": "user",
-                "content": user_text
-            }
+            {"role": "user", "content": user_text}
         ]
     }
 
     try:
-
-        response = requests.post(
-            url,
-            headers=headers,
-            json=data,
-            timeout=30
-        )
-
+        # Standard processing pipeline for third-party API integration
+        response = requests.post(url, headers=headers, json=data, timeout=30)
         response.raise_for_status()
-
         result = response.json()
-
-        answer = result["choices"][0]["message"]["content"]
-
-        return answer
-
+        return result["choices"]["message"]["content"]
     except Exception as e:
-
         print("AI Error:", e)
+        return "Sorry, I am having trouble connecting to my AI brain."
 
-        return "Sorry Keshav, I am having trouble connecting to my AI brain."
+# --- SESSION STATES FOR CONTROLLING WEB APPLICATION FLOW ---
+if 'system_online' not in st.session_state:
+    st.session_state.system_online = False
+if 'history' not in st.session_state:
+    st.session_state.history = []
 
-# --- Loader class for animation ---
-class Loader:
-    def __init__(self):
-        self.running = True
-    
-    def start(self, duration):
-        self.running = True
-    
-    def stop(self):
-        self.running = False
+# --- SIDEBAR INTERFACE ---
+with st.sidebar:
+    st.markdown("### 🖥️ SYSTEM MONITOR")
+    if st.session_state.system_online:
+        st.markdown("<p style='color:#00ffcc; font-weight:bold;'>● SYSTEM ONLINE</p>", unsafe_allow_html=True)
+    else:
+        st.markdown("<p style='color:#777777; font-weight:bold;'>● SYSTEM OFFLINE</p>", unsafe_allow_html=True)
+        
+    st.markdown("""
+    **Core Capabilities:**
+    * ◉ Voice Recognition: `READY`
+    * ◉ AI Creator Identity: `KESHAV`
+    * ◉ Web Audio Engine: `CONNECTED`
+    """)
+    st.write("---")
+    st.markdown("### 📜 COMMAND HISTORY")
+    if st.session_state.history:
+        for cmd in reversed(st.session_state.history):
+            st.text(cmd)
+    else:
+        st.caption("No commands processed yet...")
 
-loader = Loader()
+# --- PHASE 1: ACTIVATION WALL (BREAKING THE BROWSER AUDIO LOCKUP) ---
+if not st.session_state.system_online:
+    st.markdown("<div class='status-box'><h3>SYSTEM STANDBY</h3><p>Press the button below to authorize browser multimedia layers and synchronize microphone configurations.</p></div>", unsafe_allow_html=True)
+    if st.button("⚡ ACTIVATE SANSA AI"):
+        st.session_state.system_online = True
+        st.session_state.history.append("System Core Initialized")
+        st.rerun()
 
-# --- AI Backend Function (Jo button dabane par chalega) ---
-def mera_ai_backend():
-    # Jaise hi button dabega, loader ghoomna shuru ho jayega
-    loader.start(10)
-    
-    print("Calibrating microphone for background noise... Please wait 1 second.")
-    with sr.Microphone() as source:
-        recognizer.adjust_for_ambient_noise(source, duration=1)
-    print("Calibration complete! Ready for commands.")
-    speak("sansa is now online and listening.")
+# --- PHASE 2: SYSTEM ONLINE STATE (CONTINUOUS AUDIO CAPTURE LAYER) ---
+else:
+    if 'has_greeted' not in st.session_state:
+        speak("Hello! Sansa is now online and ready to chat. Who do I have the pleasure of speaking with?")
+        st.session_state.has_greeted = True
 
-    while True:
-        text = ""
-        with sr.Microphone() as source:
-            print("\nListening.....")
-            try:
-                audio = recognizer.listen(source, timeout=8, phrase_time_limit=6)
-            except sr.WaitTimeoutError:
-                print("No speech detected")
-                continue
+    st.markdown("<div class='status-box'><h3 style='color:#00e5ff;'>🎙️ Sansa Core Active</h3><p>Click the panel below, speak clearly into your device microphone, and let the voice model stream responses.</p></div>", unsafe_allow_html=True)
 
-            try:
-                text = recognizer.recognize_google(audio, language="en-IN")
-                text = text.lower().strip()
-                print(f"You said: {text}")
-            except sr.UnknownValueError:
-                speak("Sorry, I could not understand that.")
-                continue
-            except sr.RequestError as e:
-                speak("Sorry, I could not reach the speech recognition service.")
-                print(f"Request error: {e}")
-                continue
-            except Exception as e:
-                speak("Sorry, I hit an error while processing your voice.")
-                print(f"Recognition error: {e}")
-                continue
+    # Capturing input from the cloud browser pipeline rather than physical OS devices
+    text = speech_to_text(
+        start_prompt="🎙️ Click to Talk / Command Sansa",
+        stop_prompt="🛑 Processing speech data...",
+        language='en-IN',
+        use_container_width=True,
+        key='sansa_microphone_hook'
+    )
 
-        # --- Commands Execution ---
-        if not text:
-            continue
+    if text:
+        text_clean = text.lower().strip()
+        st.info(f"**You Said:** {text}")
+        st.session_state.history.append(f"User: {text_clean}")
 
-        if "exit" in text or "stop" in text:
-            speak("Goodbye, keshav! have a great day")
-            break
+        # --- EXECUTING MATCHING WEB-FRIENDLY CRITERIA ---
+        if "exit" in text_clean or "stop" in text_clean:
+            st.session_state.history.append("Sansa: Goodbye session closed.")
+            speak("Goodbye! Have a great day ahead.")
+            st.session_state.system_online = False
+            del st.session_state['has_greeted']
+            st.rerun()
             
-        elif "time" in text:
+        elif "time" in text_clean:
             current_time = datetime.now().strftime("%I:%M %p")
+            st.success(f"Sansa: The time is {current_time}")
             speak(f"The time is {current_time}")
             
-        elif "hello" in text or "hi" in text:
-            speak("yes boss.")
-        elif "sansa " in text:
-            speak("yes boas")            
-        elif "date" in text:
-            current_date = datetime.now().strftime("%d %B %Y")
-            speak(f"today is {current_date}")
-        elif "where" in text:
-            speak("i am always hear")
+        elif "hello" in text_clean or "hi" in text_clean or "sansa" in text_clean:
+            st.success("Sansa: Hello there! How can I assist you today?")
+            speak("Hello there! How can I assist you today?")
             
-        elif "day" in text:
+        elif "date" in text_clean:
+            current_date = datetime.now().strftime("%d %B %Y")
+            st.success(f"Sansa: Today is {current_date}")
+            speak(f"today is {current_date}")
+            
+        elif "where" in text_clean:
+            st.success("Sansa: I live in the digital cloud realm.")
+            speak("I live in the digital cloud realm.")
+            
+        elif "day" in text_clean:
             current_day = datetime.now().strftime("%A")
+            st.success(f"Sansa: The day is {current_day}")
             speak(f"the day is {current_day}")
 
-        elif "open" in text and "google" not in text and "youtube" not in text:
-            app_name = text.replace("open", "").strip()
-            if "vs code" in app_name or "visual studio code" in app_name:
-                app_name = "code"
-            elif "file explorer" in app_name or "this pc" in app_name:
-                app_name = "explorer"
-            elif "paint" in app_name:
-                app_name = "mspaint"
-            elif "calculator" in app_name:
-                app_name = "calc"
-
-            if shutil.which(app_name) or app_name in ["explorer", "code", "notepad", "mspaint", "calc", "cmd"]:
-                speak(f"Opening {app_name}")
-                subprocess.Popen(f"start {app_name}", shell=True)
-            else:
-                speak(f"Sorry Keshav, I could not find {app_name} on your computer.")
-                
-        elif "open chrome" in text or "open google chrome" in text:
-            speak("opening Google Chrome")
-            subprocess.Popen("start chrome", shell=True)
+        # Web safety block for local host machine utilities
+        elif "open" in text_clean or "chrome" in text_clean or "volume" in text_clean or "mute" in text_clean or "lock" in text_clean or "shutdown" in text_clean:
+            st.warning("Hardware automation controls are disabled over public web links for safety.")
+            speak("System commands are restricted over browser frameworks.")
             
-        # --- VOLUME CONTROLS ---
-        elif "volume up" in text or "increase volume" in text:
-            speak("Increasing volume")
-            for _ in range(5):
-                pyautogui.press("volumeup")
-
-        elif "volume down" in text or "decrease volume" in text:
-            speak("Decreasing volume")
-            for _ in range(5):
-                pyautogui.press("volumedown")
-
-        elif "mute" in text or "unmute" in text:
-            speak("Toggling mute")
-            pyautogui.press("volumemute")
-
-        # --- LOCK PC ---
-        elif "lock my pc" in text or "lock computer" in text:
-            speak("Locking your computer, Keshav")
-            os.system("rundll32.exe user32.dll,LockWorkStation")
-
-        # --- SHUTDOWN ---
-        elif "shutdown computer" in text or "turn off pc" in text:
-            speak("Keshav, are you sure you want to shutdown the computer? Please say yes or no.")
-            with sr.Microphone() as source:
-                try:
-                    audio = recognizer.listen(source, timeout=5, phrase_time_limit=4)
-                    confirm = recognizer.recognize_google(audio, language="en-IN").lower()
-                    print(f"Confirmation: {confirm}")
-                    
-                    if "yes" in confirm or "haan" in confirm:
-                        speak("Shutting down in 10 seconds. Goodbye!")
-                        os.system("shutdown /s /t 10")
-                    else:
-                        speak("Shutdown cancelled.")
-                except Exception:
-                    speak("I did not get a clear answer. Shutdown cancelled.")
-                    
-        # --- RESTART ---
-        elif "restart computer" in text or "restart  pc" in text:
-            speak("Keshav, are you sure you want to restart the computer? Please say yes or no.")
-            with sr.Microphone() as source:
-                try:
-                    audio = recognizer.listen(source, timeout=5, phrase_time_limit=4)
-                    confirm = recognizer.recognize_google(audio, language="en-IN").lower()
-                    print(f"Confirmation: {confirm}")
-                    
-                    if "yes" in confirm or "haan" in confirm:
-                        speak("Restarting in 10 seconds. Save your work!")
-                        os.system("shutdown /r /t 10")
-                    else:
-                        speak("Restart cancelled.")
-                except Exception:
-                    speak("I did not get a clear answer. Restart cancelled.")
-
-        elif "open google" in text:
-            speak("opening google")
-            webbrowser.open("https://google.com")
-        elif "open youtube" in text:
-            speak("opening youtube")
-            webbrowser.open("https://youtube.com")
-        elif "your name" in text:
+        elif "your name" in text_clean:
+            st.success("Sansa: My name is Sansa.")
             speak("my name is sansa")
-        elif "who are you" in text:
-            speak("sansa, your  ai assistant")
-        elif "thank you" in text or "thanks" in text:
+            
+        elif "thank you" in text_clean or "thanks" in text_clean:
+            st.success("Sansa: You are welcome.")
             speak("you are welcome")
+            
         else:
-
-               answer = ask_sansa_ai(text)
-               print("sansa:", answer)
-               speak(answer)
-    # Loop se bahar aane par (Exit bolne par) loader rukega aur window band hogi
-    loader.stop()
-    root.destroy()
-
-# ====================================================================
-# FUTURISTIC sansa FRONTEND
-# ====================================================================
-
-# -----------------------------
-# 1. START AI BUTTON FUNCTION
-# -----------------------------
-def start_ai_click():
-    status_label.config(text="● SYSTEM ONLINE", fg="#00ffcc")
-    activity_label.config(text="Listening for your command...")
-    threading.Thread(target=mera_ai_backend, daemon=True).start()
-
-
-# -----------------------------
-# 2. ANIMATED sansa CORE
-# -----------------------------
-angle = 0
-
-def animate_core():
-    global angle
-
-    core_canvas.delete("animation")
-
-    # Outer rotating ring
-    core_canvas.create_arc(
-        35, 35, 265, 265,
-        start=angle,
-        extent=110,
-        outline="#00e5ff",
-        width=4,
-        style="arc",
-        tags="animation"
-    )
-
-    # Second ring
-    core_canvas.create_arc(
-        55, 55, 245, 245,
-        start=-angle * 1.5,
-        extent=80,
-        outline="#0077ff",
-        width=2,
-        style="arc",
-        tags="animation"
-    )
-
-    # Inner circle
-    core_canvas.create_oval(
-        90, 90, 210, 210,
-        outline="#00e5ff",
-        width=2,
-        tags="animation"
-    )
-
-    # sansa text
-    core_canvas.create_text(
-        150, 145,
-        text="sansa",
-        fill="white",
-        font=("Arial", 25, "bold"),
-        tags="animation"
-    )
-
-    # AI CORE text
-    core_canvas.create_text(
-        150, 175,
-        text="AI CORE",
-        fill="#00e5ff",
-        font=("Arial", 9, "bold"),
-        tags="animation"
-    )
-
-    angle += 4
-
-    root.after(40, animate_core)
-
-
-# -----------------------------
-# 3. MAIN WINDOW
-# -----------------------------
-root = tk.Tk()
-
-root.title("sansa AI - Personal Assistant")
-root.geometry("900x600")
-root.configure(bg="#050b14")
-
-# Window resize disabled
-root.resizable(False, False)
-
-
-# -----------------------------
-# 4. HEADER
-# -----------------------------
-header = tk.Frame(
-    root,
-    bg="#081522",
-    height=65
-)
-
-header.pack(fill="x")
-
-# sansa title
-title_label = tk.Label(
-    header,
-    text="◉  sansa AI",
-    font=("Arial", 22, "bold"),
-    fg="#00e5ff",
-    bg="#081522"
-)
-
-title_label.pack(side="left", padx=25, pady=15)
-
-
-# Online status
-status_label = tk.Label(
-    header,
-    text="● SYSTEM OFFLINE",
-    font=("Arial", 11, "bold"),
-    fg="#777777",
-    bg="#081522"
-)
-
-status_label.pack(side="right", padx=25)
-
-
-# -----------------------------
-# 5. LEFT PANEL
-# -----------------------------
-left_panel = tk.Frame(
-    root,
-    bg="#050b14",
-    width=650
-)
-
-left_panel.pack(side="left", fill="both", expand=True)
-
-
-# -----------------------------
-# 6. sansa CORE CANVAS
-# -----------------------------
-core_canvas = tk.Canvas(
-    left_panel,
-    width=300,
-    height=300,
-    bg="#050b14",
-    highlightthickness=0
-)
-
-core_canvas.pack(pady=35)
-
-
-# -----------------------------
-# 7. STATUS TEXT
-# -----------------------------
-activity_label = tk.Label(
-    left_panel,
-    text="System ready. Press ACTIVATE sansa.",
-    font=("Arial", 12),
-    fg="#9aa7b2",
-    bg="#050b14"
-)
-
-activity_label.pack(pady=5)
-
-
-# -----------------------------
-# 8. ACTIVATE BUTTON
-# -----------------------------
-start_button = tk.Button(
-    left_panel,
-    text="⚡  ACTIVATE sansa",
-    font=("Arial", 14, "bold"),
-    fg="white",
-    bg="#006eff",
-    activebackground="#00e5ff",
-    activeforeground="black",
-    bd=0,
-    width=25,
-    height=2,
-    cursor="hand2",
-    command=start_ai_click
-)
-
-start_button.pack(pady=25)
-
-
-# -----------------------------
-# 9. RIGHT INFORMATION PANEL
-# -----------------------------
-right_panel = tk.Frame(
-    root,
-    bg="#081522",
-    width=250
-)
-
-right_panel.pack(
-    side="right",
-    fill="y"
-)
-
-
-# PANEL TITLE
-panel_title = tk.Label(
-    right_panel,
-    text="SYSTEM MONITOR",
-    font=("Arial", 12, "bold"),
-    fg="#00e5ff",
-    bg="#081522"
-)
-
-panel_title.pack(pady=25)
-
-
-# SYSTEM INFO
-info_label = tk.Label(
-    right_panel,
-    text=
-    "STATUS\n\n"
-    "● Voice Recognition: READY\n\n"
-    "● AI Core: STANDBY\n\n"
-    "● Microphone: READY\n\n"
-    "● Backend: CONNECTED",
-    font=("Arial", 10),
-    justify="left",
-    anchor="w",
-    fg="#b8c7d1",
-    bg="#081522"
-)
-
-info_label.pack(
-    padx=20,
-    anchor="w"
-)
-
-
-# DIVIDER
-divider = tk.Frame(
-    right_panel,
-    height=1,
-    bg="#173044"
-)
-
-divider.pack(
-    fill="x",
-    padx=20,
-    pady=25
-)
-
-
-# COMMAND HISTORY
-history_title = tk.Label(
-    right_panel,
-    text="COMMAND HISTORY",
-    font=("Arial", 11, "bold"),
-    fg="#00e5ff",
-    bg="#081522"
-)
-
-history_title.pack()
-
-
-history_label = tk.Label(
-    right_panel,
-    text="No commands yet...",
-    font=("Arial", 9),
-    fg="#71808c",
-    bg="#081522",
-    wraplength=200,
-    justify="left"
-)
-
-history_label.pack(
-    pady=20,
-    padx=20
-)
-
-
-# START ANIMATION
-animate_core()
-
-
-# START TKINTER
-root.mainloop()
+            with st.spinner("Sansa is thinking..."):
+                answer = ask_sansa_ai(text)
+            st.success(f"**Sansa:** {answer}")
+            st.session_state.history.append(f"Sansa: {answer}")
+            speak(answer)

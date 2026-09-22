@@ -1,5 +1,6 @@
+streamlit
+streamlit-mic-recorder
 gtts
-python-dotenv
 requests
-SpeechRecognition
+python-dotenv
 
